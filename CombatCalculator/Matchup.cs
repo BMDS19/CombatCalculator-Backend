@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
+using System.Linq;
 
 namespace CombatCalculator
 {
@@ -23,116 +24,106 @@ namespace CombatCalculator
         try
             {
                 int defenseDivisor = 0;
-                {
-                    /*
-                    string name = req.Query["name"];
-                     = Convert.ToInt32(req.Query["defenseDivisor"]);
-
-                    string p1_style = req.Query["p1_style"];
-                    int p1_health = Convert.ToInt32(req.Query["p1_health"]);
-                    int p1_strength = Convert.ToInt32(req.Query["p1_strength"]);
-                    int p1_attackSpeed = Convert.ToInt32(req.Query["p1_attackSpeed"]);
-                    int p1_defense = Convert.ToInt32(req.Query["p1_defense"]);
-                    int p1_baseRate = Convert.ToInt32(req.Query["p1_baseRate"]);
-                    int p1_accuracy = Convert.ToInt32(req.Query["p1_accuracy"]);
-
-                    string p2_style = req.Query["p1_style"];
-                    int p2_health = Convert.ToInt32(req.Query["p2_health"]);
-                    int p2_strength = Convert.ToInt32(req.Query["p2_strength"]);
-                    int p2_attackSpeed = Convert.ToInt32(req.Query["p2_attackSpeed"]);
-                    int p2_defense = Convert.ToInt32(req.Query["p2_defense"]);
-                    int p2_baseRate = Convert.ToInt32(req.Query["p2_baseRate"]);
-                    int p2_accuracy = Convert.ToInt32(req.Query["p2_accuracy"]);
-                    */
-                }
-
                 string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
                 JObject data = JsonConvert.DeserializeObject(requestBody) as JObject;
                 
-
                 int i = 0;
-                List<object> players = new List<object>();
+                var players = new List<Player>();
                 foreach (var obj in data)
                 {
                     if (i == 0) defenseDivisor = obj.Value.ToObject<int>();
-                    else players.Add(obj);
+                    else players.Add(obj.Value.ToObject<Player>());
                     i++;
                 }
 
-                //TODO: iterate through players
+                string results = CalculateFight(players, defenseDivisor);
+                var response = new Dictionary<string, string>(){{"outcome", results }};
 
-                //Player p1 = new Player(p1_style, p1_health, p1_strength, p1_attackSpeed, p1_defense, 1, p1_baseRate, p1_accuracy);
-                //Player p2 = new Player(p2_style, p2_health, p2_strength, p2_attackSpeed, p2_defense, 1, p2_baseRate, p2_accuracy);
-
-                //string results = CalculateFight(p1, p2, defenseDivisor);
-
-                var response = new Dictionary<string, string>()
-            {
-                //{"outcome", results }
-            };
-
-                //log.LogInformation(response.ToString());
-                return (ActionResult)new OkObjectResult(defenseDivisor.ToString());
-                //return name != null
-                //    ? (ActionResult)new OkObjectResult(i.ToString())
-                //    : new BadRequestObjectResult("Please pass a name on the query string or in the request body");
+                log.LogInformation(response.ToString());
+                return new OkObjectResult(response);
             }
             catch (Exception e)
             {
                 return new BadRequestObjectResult(e);
             }
         }
-        private static string CalculateFight(Player p1, Player p2, int defenseDivisor)
+        private static string CalculateFight(List<Player> players, int defenseDivisor)
         {
-            DetermineAdvantage(p1, p2);
-            float p1_results = Attack(p1,p2,defenseDivisor);
-            float p2_results = Attack(p2,p1,defenseDivisor);
-
-            if (p1_results == -1 && p2_results == -1)
-                return "They're both too weak to damage each other.";
-            if (p1_results == -1)
-                return "P2 " + p2.Style + " wins!";
-            if (p2_results == -1)
-                return "P2 " + p1.Style + " wins!";
-
-            if (p1_results > p2_results)
-                return p2.Style + " wins!";
-            else if(p1_results == p2_results)
-                return "Draw " + p1_results.ToString() + " " + p2_results.ToString();
-            else
-                return p1.Style + " wins!";
+            DetermineAdvantage(players);
+            string results = Attack(players, defenseDivisor);
+            return results;
         }
 
-        private static void DetermineAdvantage(Player p1, Player p2)        
+        private static void DetermineAdvantage(List<Player> players)        
         {
-            if (p1.Style == "MAGIC" && p2.Style == "MELEE")
-                p1.Multiplier = 2;
-            if (p1.Style == "RANGE" && p2.Style == "MAGIC")
-                p1.Multiplier = 2;
-            if (p1.Style == "MELEE" && p2.Style == "RANGE")
-                p1.Multiplier = 2;
+            //create list of styles
+            List<string> styles = players.Select(o => o.Style).ToList();
 
-            if (p2.Style == "MAGIC" && p1.Style == "MELEE")
-                p2.Multiplier = 2;
-            if (p2.Style == "RANGE" && p1.Style == "MAGIC")
-                p2.Multiplier = 2;
-            if (p2.Style == "MELEE" && p1.Style == "RANGE")
-                p2.Multiplier = 2;
-        }
-
-        private static float Attack(Player player, Player opponent, int defenseDivisor)
-        {
-            float damage_solved = (.01f * player.Accuracy) * ((player.Strength * player.Multiplier) - (opponent.Defense / defenseDivisor));
-            if (damage_solved <= 0)
+            //check player's style against styles list for advantage
+            for (int i = 0; i < styles.Count; i++)
             {
-                //too weak to damage enemy
-                return -1;
+                //TODO: to enable team battles multiplier property will need to be a dictionary
+                //with the index of the player they're strong against
+                if (players[i].Style == "MAGIC" && styles.Contains("MELEE"))
+                    players[i].Multiplier = 2;
+                if (players[i].Style == "MELEE" && styles.Contains("RANGE"))
+                    players[i].Multiplier = 2;
+                if (players[i].Style == "RANGE" && styles.Contains("MAGIC"))
+                    players[i].Multiplier = 2;
             }
-            damage_solved += player.BaseRate;
-            float hits_required = opponent.Health / damage_solved;
-            float total_time = hits_required * (1 / player.AttackSpeed);
+        }
 
-            return total_time;
+        private static string Attack(List<Player> players, int defenseDivisor)
+        {
+            string results = "";
+            float c1_total_time = 0;
+            float c2_total_time = 0;
+            Queue<Player> battle_queue = new Queue<Player>();
+
+            foreach (var player in players)
+                battle_queue.Enqueue(player);
+
+            var combatant_1 = battle_queue.Dequeue();
+            var combatant_2 = battle_queue.Dequeue();
+
+            //solve combatant 1
+            float c1_damage_solved = (.01f * combatant_1.Accuracy) * ((combatant_1.Strength * combatant_1.Multiplier) - (combatant_2.Defense / defenseDivisor));
+            if (c1_damage_solved <= 0)
+            {
+                results += "Combatant_1 the "+combatant_1.Style+ " is too weak to damage Combatant_2. @ ";
+                c1_total_time = -1;
+            }
+            else
+            {
+                c1_damage_solved += combatant_1.BaseRate;
+                float c1_hits_required = combatant_2.Health / c1_damage_solved;
+                c1_total_time = c1_hits_required * (1 / combatant_1.AttackSpeed);
+                results += string.Format("Combatant_1 the {0} would take {1} seconds to defeat Combatant_2 the {2} @ ", combatant_1.Style, c1_total_time, combatant_2.Style);
+            }
+            
+            //solve combatant 2
+            float c2_damage_solved = (.01f * combatant_2.Accuracy) * ((combatant_2.Strength * combatant_2.Multiplier) - (combatant_1.Defense / defenseDivisor));
+            if (c2_damage_solved <= 0)
+            {
+                results += "Combatant_2 the " + combatant_2.Style + " is too weak to damage Combatant_1. @ ";
+                c2_total_time = -1;
+            }
+            else
+            {
+                c2_damage_solved += combatant_2.BaseRate;
+                float c2_hits_required = combatant_1.Health / c2_damage_solved;
+                c2_total_time = c2_hits_required * (1 / combatant_2.AttackSpeed);
+                results += string.Format("Combatant_2 the {0} would take {1} seconds to defeat Combatant_1 the {2} @ ", combatant_2.Style, c2_total_time, combatant_1.Style);
+            }
+
+            //determine winner
+            if (c1_total_time < c2_total_time || c2_total_time <= 0)
+                results += "Combatant 1 Wins!";
+            else if (c1_total_time == c2_total_time)
+                results += "Draw!";
+            else
+                results += "Combatant 2 Wins!";
+            return results;
         }
     }
 }
